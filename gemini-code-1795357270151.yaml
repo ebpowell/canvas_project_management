@@ -1,0 +1,24 @@
+type: custom:apexcharts-card
+graph_span: 14d
+span:
+  start: day
+header:
+  show: true
+  title: Upcoming Canvas Assignments
+apex_config:
+  chart:
+    type: rangeBar
+  plotOptions:
+    bar:
+      horizontal: true
+      barHeight: '60%'
+series:
+  - entity: sensor.canvas_assignments
+    data_generator: |
+      return entity.attributes.assignments.map((item) => {
+        return {
+          x: item.course,
+          y: [new Date(item.start).getTime(), new Date(item.end).getTime()],
+          fillColor: item.status === 'Missing' ? '#e53935' : '#1e88e5'
+        };
+      });
