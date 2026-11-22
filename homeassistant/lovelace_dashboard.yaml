@@ -1,0 +1,88 @@
+title: Student Canvas Dashboard
+views:
+  - title: Assignments Gantt & Tracker
+    path: canvas-assignments
+    icon: mdi:school
+    badges:
+      - entity: sensor.canvas_assignments_alex
+        name: Alex Active
+      - entity: sensor.canvas_assignments_sam
+        name: Sam Active
+    cards:
+      # Horizontal RangeBar Gantt Chart for Student Alex
+      - type: custom:apexcharts-card
+        graph_span: 14d
+        span:
+          start: day
+        header:
+          show: true
+          title: Alex - Upcoming & Missing Assignments
+        apex_config:
+          chart:
+            type: rangeBar
+          plotOptions:
+            bar:
+              horizontal: true
+              barHeight: "60%"
+          tooltip:
+            custom: |
+              function({series, seriesIndex, dataPointIndex, w}) {
+                var item = w.config.series[seriesIndex].data[dataPointIndex];
+                return '<div style="padding: 8px;">' +
+                  '<b>' + item.name + '</b><br/>' +
+                  'Course: ' + item.x + '<br/>' +
+                  'Status: ' + item.status + '<br/>' +
+                  'Due: ' + new Date(item.y[1]).toLocaleDateString() +
+                  '</div>';
+              }
+        series:
+          - entity: sensor.canvas_assignments_alex
+            data_generator: |
+              return entity.attributes.assignments.map((item) => {
+                return {
+                  x: item.course,
+                  y: [new Date(item.start).getTime(), new Date(item.end).getTime()],
+                  fillColor: item.status === 'Missing' ? '#e53935' : (item.status === 'Submitted' ? '#43a047' : '#1e88e5'),
+                  name: item.name,
+                  status: item.status
+                };
+              });
+
+      # Flex Table View (sortable table with links)
+      - type: custom:flex-table-card
+        title: Alex - Assignment Schedule
+        entities:
+          include: sensor.canvas_assignments_alex
+        columns:
+          - name: Course
+            data: assignments
+            modify: x.course
+          - name: Assignment
+            data: assignments
+            modify: "'<a href=\"' + x.link + '\" target=\"_blank\">' + x.name + '</a>'"
+          - name: Start Date
+            data: assignments
+            modify: x.start
+          - name: Due Date
+            data: assignments
+            modify: x.end
+          - name: Status
+            data: assignments
+            modify: |
+              if (x.status === 'Missing') {
+                '<span style="color: #e53935; font-weight: bold;">Missing</span>';
+              } else if (x.status === 'Submitted') {
+                '<span style="color: #43a047;">Submitted</span>';
+              } else {
+                '<span style="color: #1e88e5;">' + x.status + '</span>';
+              }
+
+      # Zero-HACS Fallback Markdown Card
+      - type: markdown
+        title: Upcoming Canvas Schedule (Fallback Table)
+        content: |
+          | Course | Assignment | Due Date | Status |
+          | :--- | :--- | :--- | :--- |
+          {% for a in state_attr('sensor.canvas_assignments_alex', 'assignments') | default([]) %}
+          | {{ a.course }} | [{{ a.name }}]({{ a.link }}) | {{ a.end }} | **{{ a.status }}** |
+          {% endfor %}

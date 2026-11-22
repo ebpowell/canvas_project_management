@@ -1,0 +1,20 @@
+students:
+  - name: "Alex"
+    canvas_domain: "school.instructure.com"
+    canvas_token: "YOUR_CANVAS_API_TOKEN_HERE"
+    canvas_scraper_bin: "canvas-scraper"
+    google_sheet_tab: "Raw_Data_Alex"
+    mqtt_sensor_suffix: "alex"
+    excluded_courses: []
+    active_days_lookahead: 30
+    active_days_lookback: 14
+
+  - name: "Sam"
+    canvas_domain: "school.instructure.com"
+    canvas_token: "YOUR_CANVAS_API_TOKEN_HERE"
+    canvas_scraper_bin: "canvas-scraper"
+    google_sheet_tab: "Raw_Data_Sam"
+    mqtt_sensor_suffix: "sam"
+    excluded_courses: []
+    active_days_lookahead: 30
+    active_days_lookback: 14

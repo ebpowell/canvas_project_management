@@ -1,0 +1,37 @@
+- id: canvas_assignment_missing_alert
+  alias: "Canvas: Alert on Missing Assignment"
+  description: "Sends push notification when an assignment transitions to Missing"
+  trigger:
+    - platform: state
+      entity_id:
+        - sensor.canvas_assignments_alex
+        - sensor.canvas_assignments_sam
+      attribute: missing_count
+  condition:
+    - condition: template
+      value_template: >
+        {{ trigger.to_state.attributes.missing_count > trigger.from_state.attributes.missing_count }}
+  action:
+    - service: notify.notify
+      data:
+        title: "⚠️ Missing Canvas Assignment"
+        message: >
+          {{ trigger.to_state.attributes.student }} has a new missing assignment! Total missing: {{ trigger.to_state.attributes.missing_count }}.
+        data:
+          tag: canvas-missing-alert
+          url: /lovelace/canvas-assignments
+
+- id: canvas_assignment_due_24h_reminder
+  alias: "Canvas: Daily Reminder for Due Assignments"
+  description: "Morning reminder at 07:00 for assignments due today"
+  trigger:
+    - platform: time
+      at: "07:00:00"
+  action:
+    - service: notify.notify
+      data:
+        title: "📚 Today's Canvas Deadlines"
+        message: >
+          Check the Canvas dashboard for today's assignments. Alex has {{ states('sensor.canvas_assignments_alex') }} active assignments.
+        data:
+          url: /lovelace/canvas-assignments
