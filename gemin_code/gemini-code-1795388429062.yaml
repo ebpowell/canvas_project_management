@@ -1,0 +1,109 @@
+# ==============================================================================
+# Multi-Student Tracking, Reconciliation & AI Hook Configuration
+# ==============================================================================
+
+global_defaults:
+  # Gantt date normalization rules
+  default_lead_days: 7               # Fallback start_date = due_date - 7 days when unlock_at is null
+  gantt_horizon_days: 21             # Lookahead window published to Home Assistant Gantt card
+
+  # Canvas-vs.-Aspen reconciliation rules
+  reconciliation:
+    fuzzy_match_threshold: 80        # >= 80% token_sort_ratio = automatic match
+    fuzzy_gray_zone_min: 60          # 60-79% = routed to LLM hook for semantic disambiguation
+    due_date_window_days: 3          # +/- days tolerance between Canvas due_at and Aspen due date
+    low_grade_alert_threshold: 60.0  # Flag Aspen-only items with 0, Missing, M, or score < 60%
+
+  # Decision & Prioritization Model Hook settings
+  decision_model:
+    enabled: true
+    provider: "rule_based"           # Options: "rule_based" | "ml_scorer" (future plugin)
+    thresholds:
+      critical_risk_score: 0.85      # Triggers ESCALATE_TEACHER_SYNC / immediate HA alert
+      high_risk_score: 0.65          # Triggers PRIORITIZE_TONIGHT
+      medium_risk_score: 0.40        # Triggers SCHEDULE_THIS_WEEK
+    weights:
+      aspen_only_missing_bonus: 0.50 # Heavy boost for unposted/offline work marked 0 or Missing
+      due_within_24h_bonus: 0.30
+      due_within_72h_bonus: 0.15
+      high_grade_weight_bonus: 0.15  # Boost when assignment category weight >= 15%
+
+  # Agentic LLM Hook settings (routes to Ollama / Open WebUI on bigdata)
+  llm_agent:
+    enabled: false                   # Flip to true once Ollama endpoint is verified
+    resolve_gray_zone_matches: true  # Use LLM to judge 60-79% fuzzy title matches
+    generate_daily_briefing: true    # Populate daily_llm_briefing attribute in Home Assistant
+    draft_teacher_inquiries: true    # Draft concise inquiry notes on Discrepancies_<Student> tab
+    max_items_per_briefing: 10
+
+students:
+  - id: "student_1"
+    display_name: "Student One"
+    enabled: true
+
+    # Canvas LMS connection
+    canvas:
+      auth_type: "token"             # "token" or "cookie"
+      token: "${STUDENT_1_CANVAS_TOKEN}"
+      cookie: "${STUDENT_1_CANVAS_COOKIE}"
+      include_concluded_courses: false
+
+    # Follett Aspen SIS connection
+    aspen:
+      enabled: true
+      portal_type: "family"          # "family" or "student"
+      student_selector_name: "Student One" # Required if Family portal has multiple children
+      username: "${STUDENT_1_ASPEN_USERNAME}"
+      password: "${STUDENT_1_ASPEN_PASSWORD}"
+      # Map Aspen Course Code -> Canvas Course ID & Canonical Display Name
+      course_map:
+        "0301-1":
+          canvas_course_id: 104521
+          canonical_name: "AP English Literature"
+        "0412-2":
+          canvas_course_id: 104589
+          canonical_name: "Honors Pre-Calculus"
+        "0520-1":
+          canvas_course_id: 104602
+          canonical_name: "AP US History"
+        "0610-3":
+          canvas_course_id: 104615
+          canonical_name: "Honors Chemistry"
+
+    # Output Targets
+    outputs:
+      google_sheets:
+        raw_data_tab: "Raw_Data_Student1"
+        discrepancies_tab: "Discrepancies_Student1"
+      home_assistant:
+        sensor_object_id: "canvas_assignments_student1"
+        device_name: "Student 1 Academic Tracker"
+        notify_services:
+          - "notify.mobile_app_pixel_9"
+
+  # Example second student sharing a Family Aspen login with separate Canvas token
+  - id: "student_2"
+    display_name: "Student Two"
+    enabled: false
+    canvas:
+      auth_type: "token"
+      token: "${STUDENT_2_CANVAS_TOKEN}"
+    aspen:
+      enabled: true
+      portal_type: "family"
+      student_selector_name: "Student Two"
+      username: "${STUDENT_1_ASPEN_USERNAME}"
+      password: "${STUDENT_1_ASPEN_PASSWORD}"
+      course_map:
+        "0201-1":
+          canvas_course_id: 105110
+          canonical_name: "English 9"
+    outputs:
+      google_sheets:
+        raw_data_tab: "Raw_Data_Student2"
+        discrepancies_tab: "Discrepancies_Student2"
+      home_assistant:
+        sensor_object_id: "canvas_assignments_student2"
+        device_name: "Student 2 Academic Tracker"
+        notify_services:
+          - "notify.mobile_app_pixel_9"

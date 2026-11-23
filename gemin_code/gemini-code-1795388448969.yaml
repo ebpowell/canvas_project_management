@@ -1,0 +1,77 @@
+# ==============================================================================
+# Home Assistant Automations — Canvas & Aspen Student Tracker
+# ==============================================================================
+
+- id: student1_aspen_discrepancy_alert
+  alias: "Academic Tracker: Aspen Missing/Zero Discrepancy Alert"
+  description: >
+    Sends a high-priority mobile notification when Aspen reports a 0 or Missing
+    grade for an assignment that never appeared in Canvas.
+  mode: single
+  trigger:
+    - platform: state
+      entity_id: sensor.canvas_assignments_student1
+      attribute: aspen_discrepancy_count
+  condition:
+    - condition: template
+      value_template: >
+        {% set new_val = trigger.to_state.attributes.aspen_discrepancy_count | int(0) %}
+        {% set old_val = trigger.from_state.attributes.aspen_discrepancy_count | int(0) if trigger.from_state else 0 %}
+        {{ new_val > 0 and new_val > old_val }}
+  action:
+    - variables:
+        discrepancies: "{{ state_attr('sensor.canvas_assignments_student1', 'aspen_discrepancies') or [] }}"
+        count: "{{ state_attr('sensor.canvas_assignments_student1', 'aspen_discrepancy_count') | int(0) }}"
+        summary_lines: >
+          {% for d in discrepancies[:3] %}
+          • {{ d.course }}: {{ d.name }} ({{ d.aspen_score }}){% if not loop.last %}\n{% endif %}
+          {% endfor %}
+    - service: notify.mobile_app_pixel_9
+      data:
+        title: "⚠️ {{ count }} Aspen Discrepancy Found"
+        message: >
+          Marked 0 or Missing in Aspen without a Canvas entry:
+          {{ summary_lines }}
+        data:
+          tag: "aspen_discrepancy_student1"
+          channel: "Academic Alerts"
+          importance: high
+          clickAction: "/student-one"
+          url: "/student-one"
+
+- id: student1_evening_priority_digest
+  alias: "Academic Tracker: Evening High-Priority Homework Check"
+  description: >
+    Checks at 19:30 each school evening for CRITICAL/HIGH urgency assignments
+    or unsubmitted work due within 24 hours.
+  mode: single
+  trigger:
+    - platform: time
+      at: "19:30:00"
+  condition:
+    - condition: time
+      weekday:
+        - mon
+        - tue
+        - wed
+        - thu
+        - sun
+    - condition: template
+      value_template: >
+        {% set items = state_attr('sensor.canvas_assignments_student1', 'top_priority_actions') or [] %}
+        {{ items | length > 0 }}
+  action:
+    - variables:
+        actions: "{{ state_attr('sensor.canvas_assignments_student1', 'top_priority_actions') or [] }}"
+        action_list: >
+          {% for a in actions[:4] %}
+          • [{{ a.urgency_tier }}] {{ a.course }} — {{ a.name }} (Due {{ a.end }}){% if not loop.last %}\n{% endif %}
+          {% endfor %}
+    - service: notify.mobile_app_pixel_9
+      data:
+        title: "📚 Evening Homework Priority Check"
+        message: "{{ action_list }}"
+        data:
+          tag: "evening_homework_student1"
+          clickAction: "/student-one"
+          url: "/student-one"

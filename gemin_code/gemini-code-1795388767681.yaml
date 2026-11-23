@@ -1,0 +1,33 @@
+services:
+  canvas-tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: canvas-tracker:latest
+    container_name: canvas-tracker
+    restart: unless-stopped
+
+    # Recommended by Playwright so Chromium does not exhaust /dev/shm inside Docker
+    ipc: host
+
+    # Allow container to resolve 'bigdata' directly to the Ubuntu host's Mosquitto & Ollama services
+    extra_hosts:
+      - "bigdata:host-gateway"
+
+    env_file:
+      - .env
+
+    environment:
+      - TZ=${TZ:-America/New_York}
+      - SYNC_SCHEDULE_TIME=${SYNC_SCHEDULE_TIME:-06:00}
+
+    volumes:
+      - /opt/data/canvas-tracker/config:/app/config:ro
+      - /opt/data/canvas-tracker/secrets:/app/secrets:ro
+      - /opt/data/canvas-tracker/data:/app/data
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

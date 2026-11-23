@@ -1,0 +1,131 @@
+title: Student Academic Tracker
+views:
+  - title: Student One
+    path: student-one
+    icon: mdi:school
+    cards:
+      # ------------------------------------------------------------------------
+      # 1. Conditional Aspen Discrepancy Banner (Visible only when count > 0)
+      # ------------------------------------------------------------------------
+      - type: conditional
+        conditions:
+          - condition: numeric_state
+            entity: sensor.canvas_assignments_student1
+            attribute: aspen_discrepancy_count
+            above: 0
+        card:
+          type: markdown
+          title: "⚠️ Aspen Gradebook Discrepancy Alert"
+          card_mod:
+            style: |
+              ha-card {
+                border: 2px solid #e53935;
+                background-color: rgba(229, 57, 53, 0.08);
+              }
+          content: >
+            **{{ state_attr('sensor.canvas_assignments_student1', 'aspen_discrepancy_count') }} assignment(s)**
+            appeared as **0 or Missing in Aspen** without a matching entry in Canvas:
+
+            {% set items = state_attr('sensor.canvas_assignments_student1', 'aspen_discrepancies') or [] %}
+            {% for item in items %}
+            - **{{ item.course }}** — *{{ item.name }}* (Due: {{ item.end }} | Aspen Score: `{{ item.aspen_score }}`)
+              {% if item.inquiry_draft %}
+              > *Draft Inquiry:* {{ item.inquiry_draft }}
+              {% endif %}
+            {% endfor %}
+
+      # ------------------------------------------------------------------------
+      # 2. Top Summary Metrics Row
+      # ------------------------------------------------------------------------
+      - type: horizontal-stack
+        cards:
+          - type: entity
+            entity: sensor.canvas_assignments_student1
+            name: Active / Upcoming
+            icon: mdi:book-open-page-variant
+          - type: entity
+            entity: sensor.canvas_assignments_student1
+            attribute: aspen_discrepancy_count
+            name: Aspen Discrepancies
+            icon: mdi:alert-decagram
+          - type: entity
+            entity: sensor.canvas_assignments_student1
+            attribute: missing_count
+            name: Canvas Missing
+            icon: mdi:clock-alert-outline
+
+      # ------------------------------------------------------------------------
+      # 3. Daily Agentic LLM Briefing (Ollama / gpt-oss:20b on bigdata)
+      # ------------------------------------------------------------------------
+      - type: markdown
+        title: Daily Academic Briefing
+        content: >
+          {% set briefing = state_attr('sensor.canvas_assignments_student1', 'daily_llm_briefing') %}
+          {% if briefing %}
+          {{ briefing }}
+          {% else %}
+          *LLM briefing disabled or awaiting the next 06:00 sync run.*
+          {% endif %}
+
+          ---
+          *Last Synced: {{ states.sensor.canvas_assignments_student1.last_updated.strftime('%Y-%m-%d %H:%M') if states.sensor.canvas_assignments_student1 else 'Pending' }}*
+
+      # ------------------------------------------------------------------------
+      # 4. 21-Day Assignment Gantt Chart (Requires HACS apexcharts-card)
+      # ------------------------------------------------------------------------
+      - type: custom:apexcharts-card
+        graph_span: 21d
+        span:
+          start: day
+        header:
+          show: true
+          title: 21-Day Assignment Timeline (Canvas + Aspen)
+          show_states: false
+        apex_config:
+          chart:
+            type: rangeBar
+            height: 380
+            toolbar:
+              show: true
+          plotOptions:
+            bar:
+              horizontal: true
+              barHeight: '65%'
+              rangeBarGroupRows: true
+          xaxis:
+            type: datetime
+          tooltip:
+            x:
+              format: 'MMM dd'
+        series:
+          - entity: sensor.canvas_assignments_student1
+            data_generator: |
+              const items = entity.attributes.assignments || [];
+              return items.map((item) => {
+                let color = '#1e88e5'; // Upcoming (Blue)
+                if (item.source === 'aspen_only' || item.status === 'Aspen Only (Missing/0)') {
+                  color = '#e53935'; // Aspen-Only Discrepancy (Red)
+                } else if (item.status === 'Missing' || item.status === 'Late') {
+                  color = '#fb8c00'; // Canvas Missing/Late (Orange)
+                } else if (item.status === 'Submitted' || item.status === 'Graded') {
+                  color = '#43a047'; // Completed (Green)
+                }
+                return {
+                  x: item.course,
+                  y: [new Date(item.start).getTime(), new Date(item.end).getTime()],
+                  fillColor: color
+                };
+              });
+
+      # ------------------------------------------------------------------------
+      # 5. Prioritized Action Queue (Zero-HACS Markdown Table)
+      # ------------------------------------------------------------------------
+      - type: markdown
+        title: Prioritized Assignments & Action Queue
+        content: >
+          | Tier | Course | Assignment | Due | Source | Status |
+          | :--- | :--- | :--- | :--- | :--- | :--- |
+          {% set items = state_attr('sensor.canvas_assignments_student1', 'assignments') or [] %}
+          {% for item in items | sort(attribute='risk_score', reverse=true) %}
+          | **{{ item.urgency_tier | default('MED') }}** | {{ item.course }} | [{{ item.name }}]({{ item.link }}) | {{ item.end }} | `{{ item.source }}` | {{ item.status }} |
+          {% endfor %}
