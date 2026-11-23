@@ -37,8 +37,8 @@ global_defaults:
     max_items_per_briefing: 10
 
 students:
-  - id: "student_1"
-    display_name: "Student One"
+  - id: "James_POwell"
+    display_name: "Jim"
     enabled: true
 
     # Canvas LMS connection
@@ -82,8 +82,33 @@ students:
           - "notify.mobile_app_pixel_9"
 
   # Example second student sharing a Family Aspen login with separate Canvas token
-  - id: "student_2"
-    display_name: "Student Two"
+  - id: "Erica_Powell"
+    display_name: "Erica"
+    enabled: false
+    canvas:
+      auth_type: "token"
+      token: "${STUDENT_2_CANVAS_TOKEN}"
+    aspen:
+      enabled: true
+      portal_type: "family"
+      student_selector_name: "Student Two"
+      username: "${STUDENT_1_ASPEN_USERNAME}"
+      password: "${STUDENT_1_ASPEN_PASSWORD}"
+      course_map:
+        "0201-1":
+          canvas_course_id: 105110
+          canonical_name: "English 9"
+    outputs:
+      google_sheets:
+        raw_data_tab: "Raw_Data_Student2"
+        discrepancies_tab: "Discrepancies_Student2"
+      home_assistant:
+        sensor_object_id: "canvas_assignments_student2"
+        device_name: "Student 2 Academic Tracker"
+        notify_services:
+          - "notify.mobile_app_pixel_9"
+  - id: "Charlotte_Powell"
+    display_name: "Charlotte"
     enabled: false
     canvas:
       auth_type: "token"
