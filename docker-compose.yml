@@ -3,24 +3,37 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: canvas-tracker:latest
     container_name: canvas-tracker
     restart: unless-stopped
+
+    # Chromium needs this in containers where the browser is run.
+    ipc: host
+
+    # Resolve host services on the deployment host.
+    extra_hosts:
+      - "bigdata:host-gateway"
+
     environment:
+      - TZ=${TZ:-America/New_York}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - CONFIG_PATH=/app/config/students.yaml
       - SECRETS_PATH=/app/secrets/google-service-account.json
       - DATA_DIR=/app/data
       - RUN_SCHEDULE=${RUN_SCHEDULE:-06:00}
+      - SYNC_SCHEDULE_TIME=${SYNC_SCHEDULE_TIME:-06:00}
       - GOOGLE_SPREADSHEET_ID_OR_NAME=${GOOGLE_SPREADSHEET_ID_OR_NAME:-Canvas_Student_Assignments}
       - MQTT_HOST=${MQTT_HOST:-bigdata}
       - MQTT_PORT=${MQTT_PORT:-1883}
       - MQTT_USER=${MQTT_USER:-}
       - MQTT_PASSWORD=${MQTT_PASSWORD:-}
       - MQTT_DISCOVERY_PREFIX=${MQTT_DISCOVERY_PREFIX:-homeassistant}
+
     volumes:
-      - ./config:/app/config:ro
-      - ./secrets:/app/secrets:ro
-      - ./data:/app/data:rw
+      - ${CANVAS_CONFIG_DIR:-./config}:/app/config:ro
+      - ${CANVAS_SECRETS_DIR:-./secrets}:/app/secrets:ro
+      - ${CANVAS_DATA_DIR:-./data}:/app/data:rw
+
     healthcheck:
       test: ["CMD", "python3", "-c", "import canvas_tracker; print('healthy')"]
       interval: 5m

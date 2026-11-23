@@ -81,9 +81,7 @@ canvas_project_management/
 ├── tests/
 │   └── test_normalizer.py
 ├── Dockerfile
-├── Dockerfile_canvas_scrpaer
 ├── docker-compose.yml
-├── compose_scaper.yaml
 └── pyproject.toml
 ```
 
@@ -198,7 +196,7 @@ docker compose logs -f canvas-tracker
 
 The container performs an initial sync on startup, then schedules another run daily. Docker logging is limited to three 10 MB JSON log files.
 
-`compose_scaper.yaml` is a host-oriented variant using `/opt/data/canvas-tracker/*`, `TZ`, `SYNC_SCHEDULE_TIME`, and an environment file. `Dockerfile_canvas_scrpaer` is a more feature-rich Playwright/Aspen-oriented image, but it is not used by `docker-compose.yml`.
+`docker-compose.yml` is the merged deployment configuration. It supports local directories by default and host-oriented directories through `CANVAS_CONFIG_DIR`, `CANVAS_SECRETS_DIR`, and `CANVAS_DATA_DIR`. `Dockerfile` is the single merged image: it includes the Canvas-Scraper Go binary, Python dependencies, and Playwright Chromium.
 
 ## Home Assistant
 
