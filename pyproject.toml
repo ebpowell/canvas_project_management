@@ -1,25 +1,31 @@
 [project]
 name = "canvas-tracker"
-version = "0.1.0"
-description = "Automated Canvas student assignment tracker syncing to Google Sheets and Home Assistant MQTT"
+version = "0.2.0"
+description = "Automated Canvas LMS & Follett Aspen SIS reconciler with Google Sheets Gantt and Home Assistant MQTT integration"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "beautifulsoup4>=4.12.3",
     "gspread>=6.1.4",
     "google-auth>=2.36.0",
     "paho-mqtt>=2.1.0",
+    "openai>=1.55.0",
+    "playwright>=1.49.0",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.0",
     "pyyaml>=6.0.2",
     "python-dotenv>=1.0.1",
-    "schedule>=1.2.2",
+    "rapidfuzz>=3.10.1",
     "requests>=2.32.3",
+    "schedule>=1.2.2",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.3.0",
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.24.0",
     "pytest-mock>=3.14.0",
+    "ruff>=0.8.0",
 ]
 
 [project.scripts]

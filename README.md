@@ -84,11 +84,10 @@ canvas_project_management/
 ├── Dockerfile_canvas_scrpaer
 ├── docker-compose.yml
 ├── compose_scaper.yaml
-├── pyproject.toml
-└── py_project.toml
+└── pyproject.toml
 ```
 
-`pyproject.toml` is the package manifest used by the primary Docker build. `py_project.toml` is a second, broader manifest retained for the reconciliation/Playwright direction. It is not currently copied or installed by `Dockerfile`.
+`pyproject.toml` is the single package manifest used by the project and Docker builds.
 
 ## Configuration
 
