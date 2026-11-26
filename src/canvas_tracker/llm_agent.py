@@ -5,7 +5,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = Any  # type: ignore
+
 from pydantic import BaseModel, Field
 
 from canvas_tracker.reconciler import GrayZoneCandidate, UnifiedAssignment

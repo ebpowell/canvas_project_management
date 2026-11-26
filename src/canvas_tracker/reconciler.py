@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import difflib
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-from rapidfuzz import fuzz
+
+try:
+    from rapidfuzz import fuzz
+except ImportError:
+    class _FuzzFallback:
+        @staticmethod
+        def token_sort_ratio(s1: str, s2: str) -> int:
+            t1 = " ".join(sorted(str(s1).lower().split()))
+            t2 = " ".join(sorted(str(s2).lower().split()))
+            return int(difflib.SequenceMatcher(None, t1, t2).ratio() * 100)
+
+    fuzz = _FuzzFallback()
 
 from canvas_tracker.aspen_scraper import AspenAssignmentRecord
 
@@ -79,6 +91,53 @@ class UnifiedAssignment(BaseModel):
     urgency_tier: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"] = "MEDIUM"
     recommended_action: str = "MONITOR"
     rationale: str = ""
+
+    def to_sheet_row(self) -> list[Any]:
+        """Return 10-column row for Google Sheets Raw_Data tab."""
+        weight_or_pts = (
+            f"{self.grade_weight_pct}%"
+            if self.grade_weight_pct is not None
+            else (str(self.points_possible) if self.points_possible is not None else "")
+        )
+        return [
+            self.course,
+            self.name,
+            self.start_date,
+            self.due_date,
+            self.status,
+            weight_or_pts,
+            self.source,
+            self.risk_score,
+            self.urgency_tier,
+            self.link,
+        ]
+
+    def to_discrepancy_row(self) -> list[Any]:
+        """Return 7-column row for Google Sheets Discrepancies tab."""
+        return [
+            self.course,
+            self.name,
+            self.due_date,
+            self.aspen_score or "",
+            self.risk_score,
+            self.recommended_action,
+            self.inquiry_draft or "",
+        ]
+
+    def to_dashboard_item(self) -> dict[str, Any]:
+        """Return dict matching DashboardAssignmentItem schema for Home Assistant."""
+        return {
+            "course": self.course,
+            "name": self.name,
+            "start": self.start_date,
+            "end": self.due_date,
+            "status": self.status,
+            "source": self.source,
+            "link": self.link,
+            "risk_score": self.risk_score,
+            "urgency_tier": self.urgency_tier,
+            "recommended_action": self.recommended_action,
+        }
 
 
 class ReconciliationResult(BaseModel):

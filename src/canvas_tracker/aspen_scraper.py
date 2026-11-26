@@ -5,16 +5,28 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from bs4 import BeautifulSoup
-from playwright.async_api import (
-    Browser,
-    BrowserContext,
-    Page,
-    TimeoutError as PlaywrightTimeoutError,
-    async_playwright,
-)
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = Any  # type: ignore
+
+try:
+    from playwright.async_api import (
+        Browser,
+        BrowserContext,
+        Page,
+        TimeoutError as PlaywrightTimeoutError,
+        async_playwright,
+    )
+except ImportError:
+    Browser = Any  # type: ignore
+    BrowserContext = Any  # type: ignore
+    Page = Any  # type: ignore
+    PlaywrightTimeoutError = Exception  # type: ignore
+    async_playwright = None  # type: ignore
+
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -38,8 +50,8 @@ class AspenStudentConfig(BaseModel):
     enabled: bool = True
     portal_type: Literal["family", "student"] = "family"
     student_selector_name: str | None = None
-    username: str
-    password: str
+    username: str = ""
+    password: str = ""
     course_map: dict[str, AspenCourseMapping] = Field(default_factory=dict)
 
 

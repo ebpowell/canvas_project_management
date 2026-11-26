@@ -1,104 +1,162 @@
 # Canvas Project Management
 
-Canvas Project Management is a Python homelab pipeline for collecting student assignments, normalizing them into Gantt-friendly dates, syncing them to Google Sheets, and publishing Home Assistant entities through MQTT.
+Canvas Project Management is a consolidated Python homelab pipeline for collecting student assignments from Canvas LMS and Follett Aspen SIS, reconciling gradebook records with fuzzy matching, calculating risk and urgency scores, syncing to Google Sheets, and publishing rich entity and attribute states to Home Assistant through MQTT.
 
-The repository also contains an in-progress Canvas + Follett Aspen reconciliation design. The checked-in package entry point and primary Docker build currently run the Canvas-only pipeline described below.
+## Features
 
-## Current Runtime
+- **Multi-Source Extraction**:
+  - Canvas assignment extraction via the `jdansak/Canvas-Scraper` Go CLI with a direct Canvas LMS REST API fallback and sample fixture generation.
+  - Follett Aspen SIS gradebook extraction via Playwright headless browser automation (fault-isolated).
+- **Fuzzy Reconciliation**:
+  - Automatic cross-matching between Canvas LMS and Follett Aspen records using title token sorting and course/date-window correlation.
+  - Identification of Aspen-only missing/zero entries and discrepancies.
+- **Decision Engine & Prioritization**:
+  - Multi-tier rule-based risk scoring (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`) and recommended actions (`ESCALATE_TEACHER_SYNC`, `PRIORITIZE_TONIGHT`, `SCHEDULE_THIS_WEEK`, `MONITOR`).
+  - Optional LLM hook (Ollama / OpenAI-compatible API) for gray-zone match disambiguation and automated daily briefing summaries.
+- **Dual Configuration Schema Support**:
+  - Automatically loads and adapts both the simple legacy `students.yaml` and the comprehensive multi-student reconciliation schema (`homeassistant/Multi-Student Tracking, Reconciliation & AI Hook Configuration.yaml`).
+  - Supports `${ENV_VAR}` placeholder interpolation and environment variable overrides.
+- **Multi-Destination Synchronization**:
+  - **Google Sheets**: Idempotently updates both `Raw_Data_<Student>` (10 columns with Gantt bounds and risk scores) and `Discrepancies_<Student>` (gradebook discrepancies with teacher inquiry drafts).
+  - **Home Assistant (MQTT)**: Publishes MQTT Discovery sensors with active counts, 21-day Gantt timeline windows, top-priority action queues, and Aspen discrepancy counts matching Lovelace dashboards.
+  - **Disk Snapshots**: Persists structured `state_<student_id>.json` snapshots for local agent tools and integrations.
 
-- Python 3.12 package installed with `uv` and Hatchling
-- Canvas assignment scraping through the `jdansak/Canvas-Scraper` Go CLI
-- Direct Canvas LMS REST API fallback
-- Pydantic models and YAML/Pydantic Settings configuration
-- Google Sheets export through `gspread` and a Google service account
-- Home Assistant MQTT discovery and retained sensor payloads through Paho MQTT
-- Docker deployment with scheduled `06:00` execution
-- Pytest unit tests for date and status normalization
+---
 
-## Architecture
+## Architecture & Pipeline Flow
 
 ```text
-students.yaml
-     |
-     v
-main.py / canvas-tracker
-     |
-     v
-sync.run_pipeline
-     |
-     +--> scraper.run_scraper_cli
-     |      |
-     |      +--> Canvas-Scraper Go binary
-     |      +--> Direct Canvas REST API fallback
-     |
-     +--> normalizer.normalize_assignment
-     |
-     +--> sheets_client.GoogleSheetsSync
-     |      `--> one worksheet per configured student
-     |
-     `--> mqtt_publisher.MqttDiscoveryPublisher
-            `--> Home Assistant MQTT discovery + retained state
+students.yaml / Multi-Student YAML
+                 │
+                 ▼
+         main.py / CLI
+                 │
+                 ▼
+          sync.run_pipeline
+                 │
+   ┌─────────────┴─────────────┐
+   ▼                           ▼
+Stage 1: Canvas Scraper    Stage 2: Aspen SIS Scraper (Playwright)
+(Go CLI + REST Fallback)       (Academics & Gradebook Parsing)
+   │                           │
+   └─────────────┬─────────────┘
+                 ▼
+      Stage 3: Assignment Reconciler
+     (Fuzzy Match & Aspen Discrepancies)
+                 │
+                 ▼
+      Stage 4: LLM Disambiguation (Optional)
+    (Ollama / OpenAI Gray-Zone Matching)
+                 │
+                 ▼
+      Stage 5: Decision Engine Scoring
+    (Risk Weighting & Urgency Tiering)
+                 │
+                 ▼
+      Stage 6: Multi-Output Export
+  ┌──────────────┼──────────────┬──────────────┐
+  ▼              ▼              ▼              ▼
+State Disk     Google Sheets  Google Sheets   Home Assistant
+Snapshot       Raw_Data Tab   Discrepancies   MQTT Discovery &
+(JSON)         (10 Columns)   (Inquiries)     Sensor Attributes
 ```
 
-### Processing stages
-
-1. `main.py` loads environment settings and student configuration.
-2. `sync.py` processes each enabled student in `students.yaml`.
-3. `scraper.py` runs `canvas-scraper` when installed and falls back to Canvas REST API calls.
-4. `normalizer.py` creates a consistent record containing:
-   - Canvas course and assignment name
-   - normalized `YYYY-MM-DD` start and due dates
-   - status: `Missing`, `Late`, `Submitted`, `Graded`, or `Upcoming`
-   - points/weight and the Canvas assignment link
-5. `sheets_client.py` creates or updates a worksheet tab for the student.
-6. `mqtt_publisher.py` publishes a discovery config, active assignment count, and assignment attributes.
-
-Assignment start dates use `unlock_at` when available. Otherwise, they are calculated as seven days before `due_at`, with the current date used when the due date is less than seven days away. Overdue work is classified as `Missing`.
+---
 
 ## Project Layout
 
 ```text
 canvas_project_management/
 ├── src/canvas_tracker/
-│   ├── main.py                 # Canvas-tracker CLI and scheduled daemon
-│   ├── sync.py                 # Pipeline orchestration
-│   ├── scraper.py              # Canvas-Scraper CLI + REST fallback
-│   ├── normalizer.py           # Date/status normalization
-│   ├── sheets_client.py        # Google Sheets synchronization
-│   ├── mqtt_publisher.py       # Home Assistant MQTT discovery
-│   ├── config.py               # App and student Pydantic models
-│   ├── canvas_scaper.py        # Experimental unified pipeline
-│   ├── Aspen_Scaper.py         # Aspen Playwright scraper prototype
-│   ├── fuzzy_logic.py          # Reconciliation prototype
-│   ├── decision_engine.py      # Risk/priority prototype
-│   └── llm_agent.py            # Ollama/OpenAI-compatible agent prototype
+│   ├── __init__.py             # Package metadata
+│   ├── main.py                 # CLI entrypoint and daily daemon loop
+│   ├── sync.py                 # 6-stage pipeline orchestrator
+│   ├── config.py               # Dual v1/v2 Pydantic models & YAML/env loaders
+│   ├── reconciler.py           # RapidFuzz / difflib matcher & UnifiedAssignment model
+│   ├── decision_engine.py      # Rule-based / ML risk scoring and urgency tiering
+│   ├── hooks.py                # Re-export bridge for decision and LLM agent hooks
+│   ├── llm_agent.py            # Ollama / OpenAI structured LLM agent hook
+│   ├── scraper.py              # Canvas Go CLI wrapper + REST API fallback
+│   ├── aspen_scraper.py        # Playwright Follett Aspen SIS gradebook scraper
+│   ├── sheets_client.py        # Google Sheets client (Raw_Data & Discrepancies tabs)
+│   ├── mqtt_publisher.py       # Home Assistant MQTT Discovery & rich state publisher
+│   ├── normalizer.py           # Date calculations (unlock_at, due_at, start_date)
+│   └── prompts/                # Prompt templates for LLM agents & skills
 ├── homeassistant/
-│   ├── lovelace_dashboard.yaml # Lovelace Gantt/table examples
-│   ├── automations.yaml        # Notification examples
-│   └── ...                     # Additional configuration examples
+│   ├── lovelace_dashboard.yaml # ApexCharts Gantt cards, action queues, and alerts
+│   ├── automations.yaml        # Notification automations
+│   ├── Multi-Student Tracking, Reconciliation & AI Hook Configuration.yaml
+│   └── ...
 ├── config/
-│   └── students.example.yaml
+│   ├── students.example.yaml   # Example student configuration
+│   └── Canvas-Tracker & Aspen Reconciliation Environment Configuration.txt
 ├── tests/
-│   └── test_normalizer.py
-├── Dockerfile
-├── docker-compose.yml
-└── pyproject.toml
+│   ├── test_normalizer.py      # Tests for date parsing and status classification
+│   └── test_reconciliation.py  # Tests for fuzzy matching, risk scoring, and MQTT payload
+├── Dockerfile                  # Multi-stage image with Go scraper, Python, & Playwright
+├── docker-compose.yml          # Container configuration with host-gateway resolution
+└── pyproject.toml              # Unified package manifest (Hatchling)
 ```
 
-`pyproject.toml` is the single package manifest used by the project and Docker builds.
+---
 
 ## Configuration
 
-Copy the templates:
+Copy and customize the template files:
 
 ```bash
 cp .env.example .env
 cp config/students.example.yaml config/students.yaml
 ```
 
-### Student configuration
+### Student Configuration Schemas
 
-`config/students.example.yaml` documents the active schema:
+The system supports two YAML configuration styles:
+
+#### 1. Multi-Student Reconciliation Schema (Recommended)
+Defined in `homeassistant/Multi-Student Tracking, Reconciliation & AI Hook Configuration.yaml`:
+
+```yaml
+global_defaults:
+  default_lead_days: 7
+  gantt_horizon_days: 21
+  reconciliation:
+    fuzzy_match_threshold: 80
+    fuzzy_gray_zone_min: 60
+    due_date_window_days: 3
+    low_grade_alert_threshold: 60.0
+  decision_model:
+    enabled: true
+    provider: "rule_based"
+  llm_agent:
+    enabled: false
+
+students:
+  - id: "student_1"
+    display_name: "Student One"
+    enabled: true
+    canvas:
+      auth_type: "token"
+      token: "${STUDENT_1_CANVAS_TOKEN}"
+    aspen:
+      enabled: true
+      portal_type: "family"
+      username: "${STUDENT_1_ASPEN_USERNAME}"
+      password: "${STUDENT_1_ASPEN_PASSWORD}"
+      course_map:
+        "0301-1":
+          canonical_name: "Algebra II"
+    outputs:
+      google_sheets:
+        raw_data_tab: "Raw_Data_Student1"
+        discrepancies_tab: "Discrepancies_Student1"
+      home_assistant:
+        sensor_object_id: "canvas_assignments_student1"
+        device_name: "Canvas Tracker (Student One)"
+```
+
+#### 2. Legacy Schema
+Supported seamlessly for backwards compatibility:
 
 ```yaml
 students:
@@ -108,134 +166,69 @@ students:
     canvas_scraper_bin: "canvas-scraper"
     google_sheet_tab: "Raw_Data_Alex"
     mqtt_sensor_suffix: "alex"
-    excluded_courses: []
-    active_days_lookahead: 30
-    active_days_lookback: 14
 ```
 
-The Canvas token can be an approved LMS API token. The REST fallback requires a valid token; if no valid token is present, `scraper.py` returns demonstration assignments instead of contacting Canvas.
-
-Keep real student configuration and credentials out of Git:
-
-- `config/students.yaml`
-- `.env`
-- `secrets/google-service-account.json`
-
-### Environment variables
+### Environment Variables
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `LOG_LEVEL` | `INFO` | Python log level |
-| `CONFIG_PATH` | `config/students.yaml` | Student YAML path |
-| `SECRETS_PATH` | `secrets/google-service-account.json` | Google service-account JSON |
-| `DATA_DIR` | `data` | Raw payload and state directory |
-| `RUN_SCHEDULE` | `06:00` | Local-time daily run in scheduled mode |
-| `GOOGLE_SPREADSHEET_ID_OR_NAME` | `Canvas_Student_Assignments` | Spreadsheet title or ID |
-| `MQTT_HOST` | `bigdata` | MQTT broker hostname |
+| `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `CONFIG_PATH` | `config/students.yaml` | Path to students configuration YAML |
+| `SECRETS_PATH` | `secrets/google-service-account.json` | Google Cloud service account JSON path |
+| `DATA_DIR` | `data` | Directory for raw snapshots and debug artifacts |
+| `RUN_SCHEDULE` | `06:00` | Scheduled daily execution time in local time |
+| `CANVAS_BASE_URL` | `https://knoxschools.instructure.com` | Base URL for Canvas LMS |
+| `ASPEN_BASE_URL` | `https://tn-knox.myfollett.com/aspen/logon.do` | Login URL for Follett Aspen SIS |
+| `ASPEN_HEADLESS` | `true` | Run Playwright in headless mode |
+| `GOOGLE_SPREADSHEET_ID` | `Canvas_Student_Assignments` | Spreadsheet ID or name |
+| `MQTT_HOST` | `bigdata` | MQTT broker hostname or IP |
 | `MQTT_PORT` | `1883` | MQTT broker port |
-| `MQTT_USER` | unset | Optional MQTT username |
-| `MQTT_PASSWORD` | unset | Optional MQTT password |
-| `MQTT_DISCOVERY_PREFIX` | `homeassistant` | MQTT discovery namespace |
+| `MQTT_USERNAME` | *(optional)* | MQTT username |
+| `MQTT_PASSWORD` | *(optional)* | MQTT password |
+| `MQTT_DISCOVERY_PREFIX` | `homeassistant` | Home Assistant MQTT discovery prefix |
+| `LLM_BASE_URL` | `http://bigdata:11434/v1` | OpenAI-compatible endpoint (e.g. Ollama) |
+| `LLM_MODEL` | `gpt-oss:20b` | Model name for agentic triage |
 
-Pydantic Settings accepts either environment variables or values from `.env`.
+---
 
-## Google Sheets Setup
-
-1. Create or select a Google Cloud project.
-2. Enable the Google Sheets API and Google Drive API.
-3. Create a service account and download its JSON key.
-4. Save the key as `secrets/google-service-account.json`.
-5. Create a spreadsheet and share it with the service account's `client_email`.
-6. Set `GOOGLE_SPREADSHEET_ID_OR_NAME` to the spreadsheet title or ID.
-
-Each student tab is cleared and rewritten in-place with:
-
-```text
-Course | Assignment | Start Date | Due Date | Status | Weight/Pts | Link
-```
-
-Assignments are sorted by due date and then course. The implementation is intentionally designed to rewrite tabular values without recreating the worksheet.
-
-## Local Development
+## Local Development & Usage
 
 Requirements:
-
 - Python 3.12+
-- `uv`
-- Optional: Google credentials
-- Optional: a Mosquitto/MQTT broker
+- `uv` (or standard virtual environment)
 
-Install and test:
+### Running Tests
 
 ```bash
-uv sync --extra dev
-uv run pytest
+# Run the complete test suite (normalization, reconciliation, risk scoring, MQTT)
+./.venv/bin/pytest -v
 ```
 
-Run the local pipeline:
+### CLI Commands
 
 ```bash
-# Scrape and normalize, but do not write Sheets or publish MQTT
+# Execute immediate scraping and reconciliation without writing to external services
 uv run canvas-tracker --config config/students.yaml --dry-run
 
-# Scrape and immediately perform all external exports
+# Run full synchronization pipeline immediately and exit
 uv run canvas-tracker --config config/students.yaml --run-now
 
-# Run scheduled daemon mode; it performs an initial sync
+# Run as a persistent background daemon scheduled at a specific time
 uv run canvas-tracker --config config/students.yaml --schedule 06:00
 ```
 
+---
+
 ## Docker Deployment
 
-The primary `docker-compose.yml` build uses `Dockerfile`, copies the Canvas-Scraper Go binary into the Python 3.12 runtime, installs the package with `uv`, and runs as a non-root user.
+The project includes a multi-stage Docker build that bundles the Go-based `Canvas-Scraper` CLI, Python package dependencies, and Playwright Chromium:
 
 ```bash
+# Build and start container
 docker compose up -d --build
+
+# View container logs
 docker compose logs -f canvas-tracker
 ```
 
-The container performs an initial sync on startup, then schedules another run daily. Docker logging is limited to three 10 MB JSON log files.
-
-`docker-compose.yml` is the merged deployment configuration. It supports local directories by default and host-oriented directories through `CANVAS_CONFIG_DIR`, `CANVAS_SECRETS_DIR`, and `CANVAS_DATA_DIR`. `Dockerfile` is the single merged image: it includes the Canvas-Scraper Go binary, Python dependencies, and Playwright Chromium.
-
-## Home Assistant
-
-When a sync succeeds, the MQTT publisher creates a sensor for each suffix:
-
-- Discovery topic: `homeassistant/sensor/canvas_assignments_<suffix>/config`
-- State topic: `homeassistant/sensor/canvas_assignments_<suffix>/state`
-- Entity: `sensor.canvas_assignments_<suffix>`
-
-The sensor state is the count of active `Missing` and `Upcoming` assignments. The retained JSON attributes contain:
-
-- `student`
-- `total_count`
-- `missing_count`
-- `upcoming_count`
-- `assignments`
-
-Each assignment attribute contains `id`, `course`, `name`, `start`, `end`, `status`, `points`, and `link`.
-
-`homeassistant/lovelace_dashboard.yaml` contains ApexCharts Gantt and table examples. `homeassistant/automations.yaml` contains notification examples.
-
-## In-Progress Canvas + Aspen Reconciliation
-
-Several modules describe a broader reconciliation architecture:
-
-- Canvas and Aspen normalized records
-- RapidFuzz course/title matching
-- LLM-assisted gray-zone disambiguation
-- rule-based risk scoring and urgency tiers
-- Aspen Missing/zero discrepancy detection
-- Home Assistant discrepancy and briefing payloads
-- persisted `state_<student_id>.json` agent tool snapshots
-
-The legacy module names and imports are still being consolidated: for example, the package entry point is `main.py`, while `canvas_scaper.py` is an experimental alternate entry point and references modules not yet present under those names. Use the Canvas-only `canvas-tracker` command as the supported baseline until the reconciliation modules are wired into `main.py` and the active package manifest.
-
-## Tests
-
-The current test suite covers normalized start/due dates, status classification, payload conversion, and Google-Sheets/MQTT row shapes:
-
-```bash
-uv run pytest
-```
+The container automatically executes an initial sync upon startup and then remains active as a scheduled daemon.

@@ -1,11 +1,16 @@
-"""Command-line interface entrypoint for Canvas Tracker."""
+"""Command-line interface and daily daemon entrypoint for Canvas Tracker."""
+
+from __future__ import annotations
 
 import argparse
 import logging
+import os
+import signal
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
-import schedule
+from typing import Any
 from dotenv import load_dotenv
 
 from canvas_tracker.config import AppSettings
@@ -22,15 +27,68 @@ def setup_logging(log_level: str) -> None:
     )
 
 
+def run_scheduler(settings: AppSettings, schedule_hhmm: str) -> None:
+    """Lightweight daily daemon loop with graceful SIGTERM/SIGINT shutdown."""
+    logger = logging.getLogger("canvas_tracker.scheduler")
+    stop_requested = False
+
+    def _handle_signal(signum: int, _frame: Any) -> None:
+        nonlocal stop_requested
+        logger.info("Received signal %s; shutting down scheduler cleanly.", signum)
+        stop_requested = True
+
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+
+    last_run_date: str | None = None
+    logger.info("Scheduler active; daily sync scheduled at %s local time", schedule_hhmm)
+
+    # Initial run on container/service startup
+    logger.info("Performing initial synchronization on startup...")
+    run_pipeline(settings=settings, dry_run=False)
+
+    while not stop_requested:
+        now = datetime.now()
+        today_str = now.strftime("%Y-%m-%d")
+        current_hhmm = now.strftime("%H:%M")
+
+        if current_hhmm == schedule_hhmm and last_run_date != today_str:
+            last_run_date = today_str
+            logger.info("Triggering scheduled run for %s at %s", today_str, current_hhmm)
+            run_pipeline(settings=settings, dry_run=False)
+
+        time.sleep(20)
+
+
 def main() -> None:
     """CLI entrypoint supporting --run-now, --schedule, and --dry-run flags."""
     load_dotenv()
 
-    parser = argparse.ArgumentParser(description="Canvas Tracker Pipeline")
-    parser.add_argument("--run-now", action="store_true", help="Run sync pipeline immediately and exit")
-    parser.add_argument("--dry-run", action="store_true", help="Execute scraping/normalization without external sync")
-    parser.add_argument("--config", type=Path, default=None, help="Path to students.yaml config")
-    parser.add_argument("--schedule", type=str, default=None, help="Daily run time (e.g. '06:00')")
+    parser = argparse.ArgumentParser(
+        description="Canvas + Aspen Academic Tracker & Home Assistant Sync"
+    )
+    parser.add_argument(
+        "--run-now",
+        action="store_true",
+        help="Run sync pipeline immediately and exit",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Execute scraping, normalization, and reconciliation without external Google Sheets / MQTT sync",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Path to students.yaml configuration file",
+    )
+    parser.add_argument(
+        "--schedule",
+        type=str,
+        default=None,
+        help="Daily run time in HH:MM format (e.g. '06:00')",
+    )
 
     args = parser.parse_args()
 
@@ -38,30 +96,18 @@ def main() -> None:
     if args.config:
         settings.config_path = args.config
 
-    setup_logging(settings.log_level)
+    setup_logging(os.getenv("LOG_LEVEL", settings.log_level))
     logger = logging.getLogger("canvas_tracker.main")
 
     if args.run_now or args.dry_run:
-        logger.info("Executing immediate run (dry_run=%s)...", args.dry_run)
-        run_pipeline(settings, dry_run=args.dry_run)
+        logger.info("Executing immediate run (dry_run=%s, config=%s)...", args.dry_run, settings.config_path)
+        run_pipeline(settings=settings, dry_run=args.dry_run)
         sys.exit(0)
 
-    # Scheduled mode
-    run_time = args.schedule or settings.run_schedule
-    logger.info("Starting Canvas Tracker in scheduled daemon mode (daily at %s)...", run_time)
-
-    # Initial run on container startup
-    run_pipeline(settings, dry_run=False)
-
-    schedule.every().day.at(run_time).do(run_pipeline, settings=settings, dry_run=False)
-
-    try:
-        while True:
-            schedule.run_pending()
-            time.sleep(30)
-    except KeyboardInterrupt:
-        logger.info("Shutting down Canvas Tracker daemon.")
-        sys.exit(0)
+    # Scheduled daemon mode
+    run_time = args.schedule or os.getenv("RUN_SCHEDULE") or settings.run_schedule
+    logger.info("Starting Canvas Tracker daemon (daily at %s, config=%s)...", run_time, settings.config_path)
+    run_scheduler(settings, run_time)
 
 
 if __name__ == "__main__":
